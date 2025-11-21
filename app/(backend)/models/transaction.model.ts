@@ -35,7 +35,7 @@ const transactionSchema = new Schema<ITransaction>(
     planId: { type: Schema.Types.ObjectId, ref: "Plan" },
     source: {
       type: Number,
-      enum: [1, 2, 3, 4, 5, 6, 7, 8], //1->fund request, 2->withdrawal req, 3->fund transfer,  4->"deposit", 5->daily income 6->monthly income, 7->level income, 8->Direct Income
+      enum: [1, 2, 3, 4, 5, 6, 7, 8], //1->Topup fund request, 2->withdrawal req, 3->fund transfer,  4->"deposit", 5->daily income 6->monthly income, 7->level income, 8->Direct Income
       required: true,
     },
     description: String,
