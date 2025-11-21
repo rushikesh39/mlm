@@ -15,7 +15,7 @@ export default function AdminPlansPage() {
   const [editPlan, setEditPlan] = useState<any | null>(null);
   const [form, setForm] = useState({
     name: "",
-    type: 0,
+    type: 1,
     amount: 0,
     dailyCommission: 0,
     monthlyCommission: 0,
@@ -120,7 +120,7 @@ export default function AdminPlansPage() {
               setEditPlan(null);
               setForm({
                 name: "",
-                type: 0,
+                type: 1,
                 amount: 0,
                 dailyCommission: 0,
                 monthlyCommission: 0,
