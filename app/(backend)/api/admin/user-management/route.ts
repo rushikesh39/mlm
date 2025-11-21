@@ -51,7 +51,7 @@ export async function GET(req: Request) {
           FullName: u.fullName,
           Email: u.email,
           SponsorID: u.sponsorId || "-",
-          WalletBalance: u.walletBalance,
+          WalletBalance: u.topupWalletBalance,
           TotalEarnings: u.totalEarnings,
           TotalWithdrawn: u.totalWithdrawn,
           Status: u.isActive ? "Active" : "Inactive",

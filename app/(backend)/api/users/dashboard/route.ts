@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
     // ✅ Construct dashboard data
     const dashboardData = {
-      walletBalance: user.eWalletBalance || 0,
+      topupWalletBalance: user.topupWalletBalance || 0,
       totalInvestment: user.totalEarnings || 0,
       referralCount: user.referrals.length,
       kycStatus:kyc?.status||undefined,

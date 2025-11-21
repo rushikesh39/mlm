@@ -9,7 +9,7 @@ import { Loader2, ShoppingCart, Wallet } from "lucide-react";
 export default function UserPlanPurchasePage() {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [walletBalance, setWalletBalance] = useState(0);
+  const [topupWalletBalance, setTopupWalletBalance] = useState(0);
 
   const [form, setForm] = useState({
     userId: "",
@@ -30,7 +30,7 @@ export default function UserPlanPurchasePage() {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (res.data.success) setWalletBalance(res.data.user.topupWalletBalance);
+        if (res.data.success) setTopupWalletBalance(res.data.user.topupWalletBalance);
       } catch {
         toast.error("Unable to load wallet");
       }
@@ -67,7 +67,7 @@ export default function UserPlanPurchasePage() {
     if (!selectedPlan) return toast.error("Invalid plan");
 
     // Check wallet balance
-    if (walletBalance < selectedPlan.amount) {
+    if (setTopupWalletBalance < selectedPlan.amount) {
       return toast.error("Insufficient Topup Wallet Balance");
     }
 
@@ -102,7 +102,7 @@ export default function UserPlanPurchasePage() {
           <Wallet className="text-blue-600" />
           <div>
             <p className="text-gray-600 text-sm">Topup Wallet Balance</p>
-            <p className="text-xl font-bold text-blue-700">₹{walletBalance}</p>
+            <p className="text-xl font-bold text-blue-700">₹{topupWalletBalance}</p>
           </div>
         </div>
 

@@ -7,7 +7,7 @@ import StatCard from "../../components/StatCard";
 import { Wallet, DollarSign, Users, ShieldCheck } from "lucide-react";
 
 interface DashboardData {
-  walletBalance: number;
+  topupWalletBalance: number;
   totalInvestment: number;
   referralCount: number;
   kycStatus: number; // 0 = pending, 1 = approved, 2 = rejected
@@ -99,7 +99,7 @@ export default function SuperAdminDashboard() {
           {/* Wallet Balance */}
           <StatCard
             title="Total Wallet Balance"
-            value={`₹${stats?.walletBalance ?? 0}`}
+            value={`₹${stats?.topupWalletBalance ?? 0}`}
             icon={<Wallet size={24} />}
             color="border-yellow-500"
           />

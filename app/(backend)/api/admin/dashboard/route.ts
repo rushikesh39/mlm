@@ -23,8 +23,8 @@ export async function GET(req: Request) {
     });
     const totalFreeUsers = totalUsers - totalPaidUsers;
 
-    const totalWalletBalance = await User.aggregate([
-      { $group: { _id: null, total: { $sum: "$walletBalance" } } },
+    const totalEWalletBalance = await User.aggregate([
+      { $group: { _id: null, total: { $sum: "$topupWalletBalance" } } },
     ]);
 
     const totalInvestment = await User.aggregate([
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
         totalUsers,
         totalPaidUsers,
         totalFreeUsers,
-        totalWalletBalance: totalWalletBalance[0]?.total || 0,
+        totalWalletBalance: totalEWalletBalance[0]?.total || 0,
         totalInvestment: totalInvestment[0]?.total || 0,
         totalKycApproved,
         totalKycPending,
