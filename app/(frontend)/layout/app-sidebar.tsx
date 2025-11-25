@@ -10,6 +10,7 @@ import {
   Layers,
   FileBarChart,
   Settings,
+  Boxes,
 } from "lucide-react";
 
 import Image from "next/image";
@@ -133,6 +134,15 @@ export function AppSidebar({ role = "admin" }) {
                   {/* USERS */}
 
                   <SidebarGroupLabel>Administrator</SidebarGroupLabel>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild className="text-[16px]">
+                      <a href="plans">
+                        <Boxes className="mr-2 h-10 w-10" />
+                        <span>Plans</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
 
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild className="text-[16px]">

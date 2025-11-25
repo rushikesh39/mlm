@@ -10,7 +10,7 @@ interface StatCardProps {
 export default function StatCard({ title, value, icon, color }: StatCardProps) {
   return (
     <div
-      className={`flex items-center justify-between p-5 py-8 rounded-2xl shadow-md bg-white border-t-4 ${color || "border-blue-500"}`}
+      className={`flex items-center justify-between p-5 py-8 rounded-2xl shadow-md bg-white border-t-[2px] ${color || "border-blue-500"}`}
     >
       <div>
         <h2 className="text-xl font-semibold text-gray-500">{title}</h2>

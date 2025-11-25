@@ -1,34 +1,124 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { Plus, Edit, Power, Loader2, Save, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
-import Swal from "sweetalert2";
+import { Loader2, Plus, Edit, Save, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+
 import Layout from "../layout/Layout";
 import { onlyPositive } from "../utils/onlyPositive";
 
+interface Level {
+  level: number;
+  commissionPercent: number;
+}
+
+interface Plan {
+  _id: string;
+  name: string;
+  type: number;
+  amount: number;
+  dailyCommission: number;
+  monthlyCommission: number;
+  description: string;
+  isActive: boolean;
+  levels: Level[];
+}
+
+interface PlansApiResponse {
+  success: boolean;
+  plans: Plan[];
+  total: number;
+  message?: string;
+}
+
 export default function AdminPlansPage() {
-  const [plans, setPlans] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editPlan, setEditPlan] = useState<any | null>(null);
-  const [form, setForm] = useState({
+  // data state
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  // dialog & form state
+  const [open, setOpen] = useState(false);
+  const [editPlan, setEditPlan] = useState<Plan | null>(null);
+
+  // local form (for editing/creating)
+  const [form, setForm] = useState<Omit<Plan, "_id"> & { _id?: string }>({
+    _id: "",
     name: "",
     type: 1,
     amount: 0,
     dailyCommission: 0,
     monthlyCommission: 0,
     description: "",
+    isActive: true,
     levels: [{ level: 1, commissionPercent: 0 }],
   });
 
-  const fetchPlans = async () => {
+  // separate status string used by the Select ("active" | "inactive")
+  const [status, setStatus] = useState<"active" | "inactive">("active");
+
+  // pagination (server-side)
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [totalItems, setTotalItems] = useState<number>(0);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  const pageSizes = [5, 10, 25, 50];
+
+  // fetch plans from server with ?page=&pageSize=
+  const fetchPlans = async (p = page, ps = pageSize) => {
     try {
       setLoading(true);
-      const res = await axios.get("/api/admin/plans");
-      if (res.data.success) setPlans(res.data.plans);
-    } catch {
+      const res = await axios.get<PlansApiResponse>(
+        `/api/admin/plans?page=${p}&pageSize=${ps}`
+      );
+
+      if (res.data?.success) {
+        setPlans(res.data.plans || []);
+        setTotalItems(res.data.total ?? 0);
+      } else {
+        toast.error(res.data?.message || "Failed to load plans");
+      }
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to load plans");
     } finally {
       setLoading(false);
@@ -36,309 +126,490 @@ export default function AdminPlansPage() {
   };
 
   useEffect(() => {
-    fetchPlans();
+    fetchPlans(page, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSubmit = async (e: any) => {
+  // refetch when page or size changes
+  useEffect(() => {
+    fetchPlans(page, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize]);
+
+  const openCreate = () => {
+    setEditPlan(null);
+    setForm({
+      _id: "",
+      name: "",
+      type: 1,
+      amount: 0,
+      dailyCommission: 0,
+      monthlyCommission: 0,
+      description: "",
+      isActive: true,
+      levels: [{ level: 1, commissionPercent: 0 }],
+    });
+    setStatus("active");
+    setOpen(true);
+  };
+
+  const openEdit = (p: Plan) => {
+    setEditPlan(p);
+    setForm({
+      _id: p._id,
+      name: p.name,
+      type: p.type,
+      amount: p.amount,
+      dailyCommission: p.dailyCommission,
+      monthlyCommission: p.monthlyCommission,
+      description: p.description,
+      isActive: p.isActive,
+      levels: p.levels ?? [{ level: 1, commissionPercent: 0 }],
+    });
+    setStatus(p.isActive ? "active" : "inactive");
+    setOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = editPlan ? { id: editPlan._id, updateData: form } : form;
+      // Build payload: map status string to boolean isActive
+      const payloadData = {
+        ...form,
+        isActive: status === "active",
+      };
+
+      const payload = editPlan
+        ? { id: editPlan._id, updateData: payloadData }
+        : payloadData;
+
       const res = await axios[editPlan ? "patch" : "post"](
         "/api/admin/plans",
         payload
       );
-      if (res.data.success) {
+
+      if (res.data?.success) {
         toast.success(editPlan ? "Plan updated" : "Plan created");
-        setModalOpen(false);
-        fetchPlans();
-      } else toast.error(res.data.message);
-    } catch {
+        setOpen(false);
+        // refresh current page (server side)
+        fetchPlans(page, pageSize);
+      } else {
+        toast.error(res.data?.message || "Failed to save plan");
+      }
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to save plan");
     }
   };
 
-  const handleToggleStatus = async (plan: any) => {
-    const action = plan.isActive ? "deactivate" : "activate";
-    const confirm = await Swal.fire({
-      title: `Confirm ${action}?`,
-      text: `This will ${action} the plan.`,
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: `Yes, ${action}`,
-      confirmButtonColor: plan.isActive ? "#ef4444" : "#22c55e",
-    });
-    if (!confirm.isConfirmed) return;
-
-    try {
-      const res = await axios.patch("/api/admin/plans", {
-        id: plan._id,
-        updateData: { isActive: !plan.isActive },
-      });
-      if (res.data.success) {
-        toast.success(`Plan ${action}d`);
-        fetchPlans();
-      }
-    } catch {
-      toast.error("Action failed");
-    }
-  };
-
-  // 🧩 Add new level
+  // Level helpers
   const addLevel = () => {
-    setForm({
-      ...form,
+    setForm((prev) => ({
+      ...prev,
       levels: [
-        ...form.levels,
-        { level: form.levels.length + 1, commissionPercent: 0 },
+        ...prev.levels,
+        { level: prev.levels.length + 1, commissionPercent: 0 },
       ],
+    }));
+  };
+
+  const removeLevel = (index: number) => {
+    setForm((prev) => {
+      const updated = [...prev.levels];
+      updated.splice(index, 1);
+      return { ...prev, levels: updated };
     });
   };
 
-  // 🧩 Remove level
-  const removeLevel = (index: number) => {
-    const updated = [...form.levels];
-    updated.splice(index, 1);
-    setForm({ ...form, levels: updated });
+  const updateLevelField = (index: number, field: keyof Level, value: number) => {
+    setForm((prev) => {
+      const updated = [...prev.levels];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, levels: updated };
+    });
   };
 
-  // 🧩 Update level field
-  const updateLevelField = (index: number, field: string, value: number) => {
-    const updated = [...form.levels];
-    (updated[index] as any)[field] = value;
-    setForm({ ...form, levels: updated });
+  // Pagination helpers
+  const gotoPage = (p: number) => {
+    const newPage = Math.max(1, Math.min(totalPages, p));
+    setPage(newPage);
   };
+
+  // srStart for serial number computation
+  const srStart = (page - 1) * pageSize;
+
+  // build page items with ellipsis (dataTables style)
+  const pageItems = useMemo(() => {
+    const total = totalPages;
+    const current = page;
+    const delta = 2; // how many neighbors
+    const range: (number | string)[] = [];
+
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) range.push(i);
+    } else {
+      // always show first
+      range.push(1);
+
+      const left = Math.max(2, current - delta);
+      const right = Math.min(total - 1, current + delta);
+
+      if (left > 2) range.push("...");
+      for (let i = left; i <= right; i++) range.push(i);
+      if (right < total - 1) range.push("...");
+      range.push(total);
+    }
+    return range;
+  }, [page, totalPages]);
+
+  // "Showing X to Y of Z entries" calculations
+  const showingFrom = totalItems === 0 ? 0 : srStart + 1;
+  const showingTo = Math.min(totalItems, srStart + plans.length);
 
   return (
-    <Layout>
-      <div className="p-6 sm:p-10 bg-white rounded-2xl shadow-lg border border-gray-100">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-blue-700 flex items-center gap-2">
-            Plans Management
-          </h2>
-          <button
-            onClick={() => {
-              setEditPlan(null);
-              setForm({
-                name: "",
-                type: 1,
-                amount: 0,
-                dailyCommission: 0,
-                monthlyCommission: 0,
-                description: "",
-                levels: [{ level: 1, commissionPercent: 0 }],
-              });
-              setModalOpen(true);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-          >
-            <Plus size={18} /> New Plan
-          </button>
-        </div>
+    <TooltipProvider delayDuration={150}>
+      <Layout>
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-blue-700">Plans Management</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Create and manage subscription plans
+              </p>
+            </div>
 
-        {loading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full border text-sm">
-              <thead className="bg-blue-50 text-blue-700">
-                <tr>
-                  <th className="p-3 text-left">Name</th>
-                  <th className="p-3 text-left">Amount</th>
-                  <th className="p-3 text-left">Daily</th>
-                  <th className="p-3 text-left">Monthly</th>
-                  <th className="p-3 text-left">Levels</th>
-                  <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plans.map((p) => (
-                  <tr key={p._id} className="border-t hover:bg-gray-50">
-                    <td className="p-3 font-medium">{p.name}</td>
-                    <td className="p-3">₹{p.amount}</td>
-                    <td className="p-3">{p.dailyCommission}%</td>
-                    <td className="p-3">{p.monthlyCommission}%</td>
-                    <td className="p-3">
-                      {p.levels?.length ? `${p.levels.length} Levels` : "—"}
-                    </td>
-                    <td className="p-3">
-                      {p.isActive ? (
-                        <span className="text-green-700 bg-green-100 px-2 py-1 rounded-full text-xs">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="text-red-700 bg-red-100 px-2 py-1 rounded-full text-xs">
-                          Inactive
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 flex justify-center gap-2">
-                      <button
-                        onClick={() => {
-                          setEditPlan(p);
-                          setForm(p);
-                          setModalOpen(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        <Edit size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleToggleStatus(p)}
-                        className={`${
-                          p.isActive
-                            ? "text-red-600 hover:text-red-800"
-                            : "text-green-600 hover:text-green-800"
-                        }`}
-                      >
-                        <Power size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex justify-center items-center z-50 p-4">
-          <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-lg relative 
-                    max-h-[90vh] overflow-y-auto p-6"
-          >
-            {/* Close Button */}
-            <button
-              onClick={() => setModalOpen(false)}
-              className="absolute top-3 right-4 text-gray-500 hover:text-red-600"
-            >
-              ✕
-            </button>
-
-            {/* Title */}
-            <h3 className="text-lg font-bold text-blue-700 mb-4">
-              {editPlan ? "Edit Plan" : "Create New Plan"}
-            </h3>
-
-            {/* FORM */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* BASIC INPUTS */}
-              {[
-                ["name", "Plan Name", "text"],
-                ["amount", "Amount", "number"],
-                ["dailyCommission", "Daily Commission (%)", "number"],
-                ["monthlyCommission", "Monthly Commission (%)", "number"],
-              ].map(([name, label, type]) => (
-                <div key={name}>
-                  <label className="text-sm font-semibold text-gray-700">
-                    {label}
-                  </label>
-                  <input
-                    type={type}
-                    name={name}
-                    value={(form as any)[name]}
-                    onChange={(e) => {
-                      const value =
-                        type === "number"
-                          ? onlyPositive(e.target.value)
-                          : e.target.value;
-
-                      setForm({ ...form, [name]: value });
-                    }}
-                    min={type === "number" ? 0 : undefined}
-                    className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
-              ))}
-
-              {/* LEVEL INCOME SECTION */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-semibold text-gray-700">
-                    Level Income
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addLevel}
-                    className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    <Plus size={14} /> Add Level
-                  </button>
-                </div>
-
-                {/* LEVELS LIST */}
-                {form.levels.map((lvl, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 mb-2 border p-2 rounded-md bg-gray-50"
-                  >
-                    {/* Level number is FIXED */}
-                    <span className="w-16 text-sm font-medium text-gray-800">
-                      Level {i + 1}
-                    </span>
-
-                    {/* Commission Input */}
-                    <input
-                      type="number"
-                      value={lvl.commissionPercent}
-                      min={0}
-                      onChange={(e) =>
-                        updateLevelField(
-                          i,
-                          "commissionPercent",
-                          onlyPositive(e.target.value)
-                        )
-                      }
-                      className="flex-1 border p-1 rounded text-sm"
-                      placeholder="Commission %"
-                    />
-
-                    {/* Remove button only if more than 1 level */}
-                    {form.levels.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeLevel(i)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                ))}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">Page size</Label>
+                <Select
+                  onValueChange={(val) => {
+                    const ps = Number(val);
+                    setPageSize(ps);
+                    setPage(1); // reset to first page when pageSize changes
+                  }}
+                  defaultValue={String(pageSize)}
+                >
+                  <SelectTrigger className="w-[80px] h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pageSizes.map((s) => (
+                      <SelectItem key={s} value={String(s)}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {/* DESCRIPTION */}
+              <Button onClick={openCreate} className="flex items-center gap-2">
+                <Plus size={16} /> New Plan
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          <CardContent className="mt-4">
+            <ScrollArea>
+              <div className="rounded border">
+                <Table>
+                  <TableHeader className="bg-blue-50">
+                    <TableRow>
+                      <TableHead className="w-[60px]">Sr.</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Daily</TableHead>
+                      <TableHead>Monthly</TableHead>
+                      <TableHead>Levels</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {loading ? (
+                      // Skeleton rows while loading
+                      Array.from({ length: pageSize }).map((_, i) => (
+                        <TableRow key={`skeleton-${i}`} className="animate-pulse">
+                          <TableCell>
+                            <div className="h-4 w-6 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-32 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-16 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-12 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-12 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-20 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-4 w-20 bg-gray-200 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="h-8 w-24 bg-gray-200 rounded" />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : plans.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8">
+                          No plans found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      plans.map((p, idx) => (
+                        <TableRow
+                          key={p._id}
+                          className="hover:bg-muted/50 odd:bg-white even:bg-gray-50"
+                        >
+                          <TableCell className="font-medium">
+                            {srStart + idx + 1}
+                          </TableCell>
+
+                          <TableCell className="font-medium">{p.name}</TableCell>
+
+                          <TableCell>₹{p.amount}</TableCell>
+                          <TableCell>{p.dailyCommission}%</TableCell>
+                          <TableCell>{p.monthlyCommission}%</TableCell>
+                          <TableCell>{p.levels?.length ?? 0} Levels</TableCell>
+
+                          <TableCell>
+                            {p.isActive ? (
+                              <Badge className="text-green-700 border-green-200" variant="outline">
+                                Active
+                              </Badge>
+                            ) : (
+                              <Badge className="text-red-700 border-red-200" variant="outline">
+                                Inactive
+                              </Badge>
+                            )}
+                          </TableCell>
+
+                          <TableCell className="flex justify-center">
+                            {/* Only Edit button */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+                                  onClick={() => openEdit(p)}
+                                >
+                                  <Edit size={18} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Edit Plan</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </ScrollArea>
+
+            {/* Pagination bar: left - info, right - page controls (right-aligned) */}
+            <div className="flex items-center justify-between gap-4 mt-4">
+              {/* Left: showing text */}
+              <div className="text-sm text-muted-foreground">
+                Showing{" "}
+                <span className="font-medium">{showingFrom}</span> to{" "}
+                <span className="font-medium">{showingTo}</span> of{" "}
+                <span className="font-medium">{totalItems}</span> entries
+              </div>
+
+              {/* Right: pagination controls (DataTables-like, right-aligned) */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 1 || loading}
+                  onClick={() => gotoPage(page - 1)}
+                >
+                  Previous
+                </Button>
+
+                <nav className="inline-flex items-center gap-2" aria-label="Pagination">
+                  {pageItems.map((pItem, idx) =>
+                    pItem === "..." ? (
+                      <span
+                        key={`dots-${idx}`}
+                        className="inline-flex h-8 min-w-[36px] items-center justify-center rounded-md bg-transparent px-3 text-sm text-muted-foreground"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <Button
+                        key={`page-${pItem}`}
+                        size="sm"
+                        variant={pItem === page ? "default" : "ghost"}
+                        className={pItem === page ? "bg-emerald-500 text-white" : "bg-transparent"}
+                        onClick={() => gotoPage(Number(pItem))}
+                        aria-current={pItem === page ? "page" : undefined}
+                      >
+                        {pItem}
+                      </Button>
+                    )
+                  )}
+                </nav>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === totalPages || loading}
+                  onClick={() => gotoPage(page + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Create / Edit Dialog */}
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editPlan ? "Edit Plan" : "Create New Plan"}</DialogTitle>
+              <DialogDescription>
+                Setup the plan details and commissions.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSubmit} className="space-y-5 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="pb-2">Plan Name</Label>
+                  <Input
+                    value={form.name}
+                    required
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label className="pb-2">Amount</Label>
+                  <Input
+                    type="number"
+                    value={form.amount}
+                    onChange={(e) =>
+                      setForm({ ...form, amount: onlyPositive(e.target.value) })
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label className="pb-2">Daily Commission (%)</Label>
+                  <Input
+                    type="number"
+                    value={form.dailyCommission}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        dailyCommission: onlyPositive(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label className="pb-2">Monthly Commission (%)</Label>
+                  <Input
+                    type="number"
+                    value={form.monthlyCommission}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        monthlyCommission: onlyPositive(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Levels */}
               <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  Description
-                </label>
-                <textarea
-                  name="description"
+                <div className="flex items-center justify-between">
+                  <Label className="pb-2">Level Income</Label>
+
+                  <Button type="button" variant="link" size="sm" onClick={addLevel}>
+                    <Plus size={12} /> Add Level
+                  </Button>
+                </div>
+
+                <div className="space-y-2 mt-2">
+                  {form.levels.map((lvl, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-muted p-2 rounded">
+                      <div className="w-20 text-sm font-medium">Level {i + 1}</div>
+
+                      <Input
+                        type="number"
+                        value={lvl.commissionPercent}
+                        onChange={(e) =>
+                          updateLevelField(i, "commissionPercent", onlyPositive(e.target.value))
+                        }
+                        className="flex-1"
+                        placeholder="Commission %"
+                      />
+
+                      {form.levels.length > 1 && (
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removeLevel(i)}>
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status select */}
+              <div>
+                <Label className="pb-2">Status</Label>
+                <Select
+                  value={status}
+                  onValueChange={(val) => setStatus(val as "active" | "inactive")}
+                >
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">active</SelectItem>
+                    <SelectItem value="inactive">inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="pb-2">Description</Label>
+                <Textarea
                   rows={3}
                   value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.target.value })
-                  }
-                  className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-600"
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
               </div>
 
-              {/* SUBMIT BUTTON */}
-              <button
-                type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg flex items-center justify-center gap-2"
-              >
-                <Save size={18} />
-                {editPlan ? "Update Plan" : "Create Plan"}
-              </button>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex items-center gap-2">
+                  <Save size={16} />
+                  {editPlan ? "Update Plan" : "Create Plan"}
+                </Button>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
-      )}
-    </Layout>
+          </DialogContent>
+        </Dialog>
+      </Layout>
+    </TooltipProvider>
   );
 }
