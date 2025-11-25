@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import toast from "react-hot-toast";
+import Layout from "../../layout/Layout";
+
 import {
   Edit,
   Ban,
@@ -11,42 +14,142 @@ import {
   Loader2,
   Eye,
   EyeOff,
-  X,
-  Calendar,
+  Calendar as CalendarIcon,
 } from "lucide-react";
-import toast from "react-hot-toast";
-import Swal from "sweetalert2";
-import Layout from "../../layout/Layout";
 
+import { format, formatISO } from "date-fns";
+
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  ColumnDef,
+} from "@tanstack/react-table";
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+
+// ShadCN date-picker pieces
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+
+// -------------------------------
+// Helpers / Small components
+// -------------------------------
+const StatusBadge = ({ isActive }: { isActive: boolean }) =>
+  isActive ? (
+    <Badge className="bg-green-100 text-green-700">Active</Badge>
+  ) : (
+    <Badge className="bg-red-100 text-red-700">Block</Badge>
+  );
+
+// -------------------------------
+// Main
+// -------------------------------
 export default function UserManagementPage() {
   const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
-  const [filter, setFilter] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [editModal, setEditModal] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
 
-  // 🔹 Fetch users with filters
+  // Global Edit dialog state (single dialog)
+  const [editData, setEditData] = useState<{
+    open: boolean;
+    user: any | null;
+    newPassword: string;
+    showPassword: boolean;
+    saving: boolean;
+  }>({
+    open: false,
+    user: null,
+    newPassword: "",
+    showPassword: false,
+    saving: false,
+  });
+
+  // -------------------------------
+  // Fetch users
+  // -------------------------------
   const fetchUsers = async () => {
     try {
       setLoading(true);
+
+      // convert dates to yyyy-MM-dd when sending to backend.z
+      const start = startDate ? format(startDate, "yyyy-MM-dd") : "";
+      const end = endDate ? format(endDate, "yyyy-MM-dd") : "";
+
       const res = await axios.get("/api/admin/user-management", {
-        params: { page, limit, search, filter, startDate, endDate },
+        params: { page, limit, search, filter, startDate: start, endDate: end },
       });
       if (res.data.success) {
-        setUsers(res.data.users);
-        setTotalPages(res.data.pages);
+        setUsers(res.data.users || []);
+        setTotalPages(res.data.pages || 1);
+      } else {
+        setUsers([]);
+        setTotalPages(1);
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to load users");
+      setUsers([]);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
@@ -54,89 +157,260 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, search, filter, startDate, endDate]);
 
-const handleSave = async () => {
-  if (!selectedUser.fullName || !selectedUser.email) {
-    toast.error("Full Name and Email are required!");
-    return;
-  }
+  // -------------------------------
+  // Table columns (tanstack) — SR NO is first column
+  // -------------------------------
+  const columns = useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: "sr",
+        header: "SR NO",
+        cell: ({ row }) => {
+          // continuous numbering across pages: (page-1)*limit + index + 1
+          const sr = (page - 1) * limit + row.index + 1;
+          return sr;
+        },
+        enableSorting: false,
+      },
+      { accessorKey: "userId", header: "User ID" },
+      { accessorKey: "fullName", header: "Name" },
+      { accessorKey: "email", header: "Email" },
+      { accessorKey: "sponsorId", header: "Sponsor ID" },
+      {
+        accessorKey: "createdAt",
+        header: "Created On",
+        cell: ({ row }) => {
+          const raw = row.original?.createdAt;
+          try {
+            return format(new Date(raw), "yyyy-MM-dd hh:mm:ss a");
+          } catch {
+            return raw ?? "-";
+          }
+        },
+      },
+      {
+        accessorKey: "isActive",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge isActive={row.original.isActive} />,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const u = row.original as any;
 
-  try {
-    setSaving(true);
+          return (
+            <div className="inline-flex rounded-md overflow-hidden border">
+              {/* Edit - blue background */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-none border-r"
+                      onClick={() =>
+                        setEditData((d) => ({
+                          ...d,
+                          open: true,
+                          user: u,
+                          newPassword: "",
+                          showPassword: false,
+                        }))
+                      }
+                    >
+                      <Edit size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit User</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
-    // ✅ Create update payload
-    const updateData: any = {
-      fullName: selectedUser.fullName,
-      email: selectedUser.email,
-      sponsorId: selectedUser.sponsorId || undefined,
-    };
+              {/* Activate / Deactivate - green or red */}
+              <AlertDialog>
+                <TooltipProvider>
+                  <Tooltip>
+                    {/* TooltipTrigger must wrap ONLY the Button */}
+                    <AlertDialogTrigger asChild>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          className={
+                            u.isActive
+                              ? "bg-green-100 hover:bg-green-200 text-green-700 rounded-none border-r"
+                              : "bg-red-100 hover:bg-red-200 text-red-700 rounded-none border-r"
+                          }
+                        >
+                          {u.isActive ? (
+                            <Unlock size={16} />
+                          ) : (
+                            <Ban size={16} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                    </AlertDialogTrigger>
 
-    // ✅ Include password only if admin entered it
-    if (newPassword.trim() !== "") {
-      updateData.password = newPassword.trim();
-    }
+                    <TooltipContent>
+                      {u.isActive ? "Block" : "Activate"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
 
-    const res = await axios.patch("/api/admin/user-management", {
-      userId: selectedUser.userId,
-      updateData,
-    });
+                {/* Dialog content (unchanged) */}
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {u.isActive ? "Deactivate User?" : "Activate User?"}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {u.isActive
+                        ? "Deactivating will prevent the user from logging in."
+                        : "Activating will allow the user to log in again."}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
 
-    if (res.data.success) {
-      toast.success(
-        newPassword
-          ? "User and password updated successfully!"
-          : "User details updated successfully!"
-      );
-      setEditModal(false);
-      setNewPassword(""); // clear the input
-      fetchUsers();
-    } else {
-      toast.error(res.data.message || "Failed to update user");
-    }
-  } catch {
-    toast.error("Failed to update user");
-  } finally {
-    setSaving(false);
-  }
-};
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className={
+                        u.isActive
+                          ? "bg-red-600 hover:bg-red-700"
+                          : "bg-green-600 hover:bg-green-700"
+                      }
+                      onClick={async () => {
+                        try {
+                          const res = await axios.patch(
+                            "/api/admin/user-management",
+                            {
+                              userId: u.userId,
+                              updateData: { isActive: !u.isActive },
+                            }
+                          );
 
+                          if (res.data.success) {
+                            toast.success(
+                              u.isActive ? "User deactivated" : "User activated"
+                            );
+                            fetchUsers();
+                          } else {
+                            toast.error(
+                              res.data.message || "Failed to update status"
+                            );
+                          }
+                        } catch (err) {
+                          console.error(err);
+                          toast.error("Error updating status");
+                        }
+                      }}
+                    >
+                      {u.isActive ? "Deactivate" : "Activate"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
-  // 🔹 Toggle active/inactive
-  const handleToggleActive = async (user: any) => {
-    const willBlock = user.isActive;
-    const confirm = await Swal.fire({
-      title: willBlock ? "Deactivate this user?" : "Activate this user?",
-      text: willBlock
-        ? "User will lose access to the system."
-        : "User will regain access.",
-      icon: willBlock ? "warning" : "success",
-      showCancelButton: true,
-      confirmButtonText: willBlock ? "Deactivate" : "Activate",
-      confirmButtonColor: willBlock ? "#ef4444" : "#22c55e",
-    });
+              {/* Login as user - purple */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="icon"
+                          className="bg-purple-600 hover:bg-purple-700 text-white rounded-none border-r"
+                        >
+                          <LogIn size={16} />
+                        </Button>
+                      </AlertDialogTrigger>
 
-    if (!confirm.isConfirmed) return;
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Login as {u.fullName}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            You'll be signed in as this user (admin
+                            impersonation). Continue?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
 
-    try {
-      const res = await axios.patch("/api/admin/user-management", {
-        userId: user.userId,
-        updateData: { isActive: !user.isActive },
-      });
-      if (res.data.success) {
-        toast.success(user.isActive ? "User Deactivated" : "User Activated");
-        fetchUsers();
-      }
-    } catch {
-      toast.error("Error updating user status");
-    }
-  };
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-purple-600 hover:bg-purple-700"
+                            onClick={async () => {
+                              try {
+                                const res = await axios.post(
+                                  "/api/admin/login-as-user",
+                                  { userId: u.userId }
+                                );
+                                if (res.data.success) {
+                                  localStorage.setItem("token", res.data.token);
+                                  localStorage.setItem("userId", u.userId);
+                                  toast.success("Logged in as user");
+                                  window.location.href = "/user/dashboard";
+                                } else {
+                                  toast.error("Failed to login as user");
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                toast.error("Error logging in as user");
+                              }
+                            }}
+                          >
+                            Continue
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </TooltipTrigger>
+                  <TooltipContent>Login as user</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
-  // 🔹 Excel download
+              {/* NOTE: Delete removed as requested */}
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [page, limit]
+  );
+
+  const table = useReactTable({
+    data: users,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  // -------------------------------
+  // Skeleton rows
+  // -------------------------------
+  const SkeletonRows = Array.from({ length: 8 }).map((_, i) => (
+    <TableRow key={i}>
+      {Array.from({ length: 8 }).map((_, c) => (
+        <TableCell key={c}>
+          <Skeleton className="h-5 w-full" />
+        </TableCell>
+      ))}
+    </TableRow>
+  ));
+
+  // -------------------------------
+  // Export handler
+  // -------------------------------
   const handleExport = async () => {
     try {
+      const start = startDate ? format(startDate, "yyyy-MM-dd") : "";
+      const end = endDate ? format(endDate, "yyyy-MM-dd") : "";
+
       const res = await fetch(
-        `/api/admin/user-management?export=excel&filter=${filter}&search=${search}&startDate=${startDate}&endDate=${endDate}`
+        `/api/admin/user-management?export=excel&filter=${filter}&search=${encodeURIComponent(
+          search
+        )}&startDate=${start}&endDate=${end}`
       );
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -146,323 +420,383 @@ const handleSave = async () => {
       document.body.appendChild(a);
       a.click();
       a.remove();
-    } catch {
+    } catch (err) {
+      console.error(err);
       toast.error("Excel download failed");
     }
   };
 
-  // 🔹 Admin -> Login as user (no password)
-  const handleLoginAsUser = async (userId: string) => {
+  // -------------------------------
+  // Save edited user
+  // -------------------------------
+  const handleSave = async () => {
+    if (!editData.user) return;
+    const user = editData.user;
+    if (!user.fullName || !user.email) {
+      toast.error("Full name and email are required");
+      return;
+    }
+
     try {
-      const res = await axios.post("/api/admin/login-as-user", { userId });
+      setEditData((d) => ({ ...d, saving: true }));
+      const updateData: any = {
+        fullName: user.fullName,
+        email: user.email,
+        sponsorId: user.sponsorId || undefined,
+      };
+      if (editData.newPassword?.trim())
+        updateData.password = editData.newPassword.trim();
+
+      const res = await axios.patch("/api/admin/user-management", {
+        userId: user.userId,
+        updateData,
+      });
+
       if (res.data.success) {
-        localStorage.setItem("token", res.data.token);
-        localStorage.setItem("userId", userId);
-        toast.success("Logged in as user!");
-        window.location.href = "/user/dashboard";
+        toast.success(
+          editData.newPassword ? "User + password updated" : "User updated"
+        );
+        setEditData({
+          open: false,
+          user: null,
+          newPassword: "",
+          showPassword: false,
+          saving: false,
+        });
+        fetchUsers();
       } else {
-        toast.error("Failed to login as user");
+        toast.error(res.data.message || "Update failed");
+        setEditData((d) => ({ ...d, saving: false }));
       }
-    } catch {
-      toast.error("Error logging in as user");
+    } catch (err) {
+      console.error(err);
+      toast.error("Update failed");
+      setEditData((d) => ({ ...d, saving: false }));
     }
   };
 
   return (
     <Layout>
       <div className="p-6 sm:p-10 bg-white rounded-2xl shadow-xl border border-gray-100">
-        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-blue-700">Users Management</h2>
+
+          <Button
+            onClick={handleExport}
+            className="bg-green-600 hover:bg-green-700 text-white flex gap-2"
+          >
+            <Download size={16} /> Export Excel
+          </Button>
+        </div>
+
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-3">
-          <h2 className="text-2xl font-bold text-blue-700">User Management</h2>
-
           <div className="flex flex-wrap items-center gap-3">
-            {/* Filter */}
-            <select
+            {/* Filter (ShadCN Select) */}
+            <Select
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="border p-2 rounded-lg text-sm"
+              onValueChange={(v: any) => {
+                setFilter(v);
+                setPage(1);
+              }}
             >
-              <option value="all">All Users</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="All Users" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Users</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Block</SelectItem>
+              </SelectContent>
+            </Select>
 
-            {/* Search */}
-            <input
-              type="text"
+            {/* Search (ShadCN Input) */}
+            <Input
               placeholder="Search user..."
-              className="border p-2 rounded-lg text-sm w-48"
+              className="w-[220px]"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
 
-            {/* Date Filter */}
+            {/* Date filter — ShadCN Popover + Calendar */}
             <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="border p-2 rounded-lg text-sm"
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-[140px] justify-start">
+                    {startDate ? format(startDate, "yyyy-MM-dd") : "Start date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={startDate}
+                    onSelect={(d) => {
+                      if (!d) return;
+                      setStartDate(d);
+                      setPage(1);
+                    }}
+                    captionLayout="dropdown" // show month & year selectors
+                    required={false}
+                  />
+                </PopoverContent>
+              </Popover>
+
               <span className="text-gray-500">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="border p-2 rounded-lg text-sm"
-              />
-              <Calendar className="w-4 h-4 text-gray-500" />
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-[140px] justify-start">
+                    {endDate ? format(endDate, "yyyy-MM-dd") : "End date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={endDate}
+                    onSelect={(d) => {
+                      if (!d) return;
+                      setEndDate(d);
+                      setPage(1);
+                    }}
+                    captionLayout="dropdown"
+                    required={false}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              <CalendarIcon className="w-4 h-4 text-gray-500" />
             </div>
 
             {/* Limit */}
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="border p-2 rounded-lg text-sm"
+            <Select
+              value={String(limit)}
+              onValueChange={(v: any) => {
+                setLimit(Number(v));
+                setPage(1);
+              }}
             >
-              {[10, 20, 50, 100, 500].map((n) => (
-                <option key={n} value={n}>
-                  {n} / page
-                </option>
-              ))}
-            </select>
-
-            {/* Export */}
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm transition"
-            >
-              <Download size={16} /> Export Excel
-            </button>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Limit" />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50, 100].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} / page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         {/* Table */}
-        {loading ? (
-          <div className="flex justify-center items-center h-40">
-            <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-lg max-h-[70vh] overflow-y-auto">
-            <table className="min-w-full text-sm border-collapse">
-              <thead className="bg-blue-50 text-blue-700 sticky top-0">
-                <tr>
-                  <th className="p-3 text-left">User ID</th>
-                  <th className="p-3 text-left">Name</th>
-                  <th className="p-3 text-left">Email</th>
-                  <th className="p-3 text-left">Sponsor ID</th>
-                  <th className="p-3 text-left">Created On</th>
-                  <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-left">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.length ? (
-                  users.map((u, i) => (
-                    <tr key={u._id} className={`hover:bg-blue-50 transition ${
-                        i % 2 === 0 ? "bg-white" : "bg-gray-50"
-                      }`}>
-                      <td className="p-3 font-semibold">{u.userId}</td>
-                      <td className="p-3">{u.fullName}</td>
-                      <td className="p-3">{u.email}</td>
-                      <td className="p-3">{u.sponsorId || "—"}</td>
-                      <td className="p-3 text-gray-600">
-                        {new Date(u.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="p-3">
-                        {u.isActive ? (
-                          <span className="text-green-700 bg-green-100 px-2 py-1 rounded-full text-xs font-semibold">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="text-red-700 bg-red-100 px-2 py-1 rounded-full text-xs font-semibold">
-                            Inactive
-                          </span>
+        <div className="rounded border">
+          <Table>
+            <TableHeader className="bg-blue-50">
+              {table.getHeaderGroups().map((hg) => (
+                <TableRow key={hg.id}>
+                  {hg.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+
+            <TableBody>
+              {loading ? (
+                SkeletonRows
+              ) : table.getRowModel().rows.length > 0 ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    className="hover:bg-blue-50 odd:bg-white even:bg-gray-50"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
                         )}
-                      </td>
-                      <td className="p-3 flex flex-wrap gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedUser(u);
-                            setEditModal(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="Edit User"
-                        >
-                          <Edit size={18} />
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleActive(u)}
-                          className={`${
-                            u.isActive
-                              ? "text-red-600 hover:text-red-800"
-                              : "text-green-600 hover:text-green-800"
-                          }`}
-                          title={u.isActive ? "Deactivate" : "Activate"}
-                        >
-                          {u.isActive ? (
-                            <Ban size={18} />
-                          ) : (
-                            <Unlock size={18} />
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => handleLoginAsUser(u.userId)}
-                          className="text-purple-600 hover:text-purple-800"
-                          title="Login as User"
-                        >
-                          <LogIn size={18} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="text-center py-10 text-gray-500">
-                      No users found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={8}
+                    className="text-center py-8 text-gray-500"
+                  >
+                    No users found
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex justify-end items-center mt-4 gap-2 text-sm">
-          <button
-            onClick={() => setPage((p) => Math.max(p - 1, 1))}
+          <Button
+            variant="outline"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1 border rounded disabled:opacity-50"
           >
             Prev
-          </button>
+          </Button>
           <span>
             Page {page} of {totalPages}
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+          <Button
+            variant="outline"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
-            className="px-3 py-1 border rounded disabled:opacity-50"
           >
             Next
-          </button>
+          </Button>
         </div>
       </div>
-      {/* Edit Modal */}
-      {editModal && selectedUser && (
-        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl relative animate-fadeIn overflow-y-auto max-h-[90vh]">
-            <button
-              onClick={() => setEditModal(false)}
-              className="absolute top-4 right-4 text-gray-500 hover:text-red-600"
-            >
-              <X size={20} />
-            </button>
 
-            <h3 className="text-xl font-bold text-blue-700 mb-6 border-b pb-2">
-              Edit User — {selectedUser.fullName}
-            </h3>
+      {/* Global Edit Dialog */}
+      <Dialog
+        open={editData.open}
+        onOpenChange={(open) => {
+          if (!open)
+            setEditData({
+              open: false,
+              user: null,
+              newPassword: "",
+              showPassword: false,
+              saving: false,
+            });
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>Update user details.</DialogDescription>
+          </DialogHeader>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={selectedUser.fullName}
-                  onChange={(e) =>
-                    setSelectedUser({
-                      ...selectedUser,
-                      fullName: e.target.value,
-                    })
-                  }
-                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={selectedUser.email}
-                  onChange={(e) =>
-                    setSelectedUser({ ...selectedUser, email: e.target.value })
-                  }
-                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-              {/* 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Sponsor ID
-                </label>
-                <input
-                  type="text"
-                  value={selectedUser.sponsorId || ""}
-                  onChange={(e) =>
-                    setSelectedUser({
-                      ...selectedUser,
-                      sponsorId: e.target.value,
-                    })
-                  }
-                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div> */}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  New Password (optional)
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={newPassword}
-                    placeholder="Enter new password"
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    // onChange={(e) =>
-                    //   setSelectedUser({
-                    //     ...selectedUser,
-                    //     password: e.target.value,
-                    //   })
-                    // }
-                    className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
+          <div className="space-y-4 mt-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={editData.user?.fullName || ""}
+                onChange={(e) =>
+                  setEditData((d) => ({
+                    ...d,
+                    user: { ...d.user, fullName: e.target.value },
+                  }))
+                }
+                className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
             </div>
 
-            <div className="flex justify-end gap-3 mt-6 border-t pt-4">
-              <button
-                onClick={() => setEditModal(false)}
-                className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-100 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-all"
-              >
-                {saving && <Loader2 className="animate-spin w-4 h-4" />}
-                Save Changes
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={editData.user?.email || ""}
+                onChange={(e) =>
+                  setEditData((d) => ({
+                    ...d,
+                    user: { ...d.user, email: e.target.value },
+                  }))
+                }
+                className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sponsor ID
+              </label>
+              <input
+                type="text"
+                value={editData.user?.sponsorId || ""}
+                onChange={(e) =>
+                  setEditData((d) => ({
+                    ...d,
+                    user: { ...d.user, sponsorId: e.target.value },
+                  }))
+                }
+                className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                New Password (optional)
+              </label>
+              <div className="relative">
+                <input
+                  type={editData.showPassword ? "text" : "password"}
+                  value={editData.newPassword}
+                  onChange={(e) =>
+                    setEditData((d) => ({ ...d, newPassword: e.target.value }))
+                  }
+                  placeholder="Enter new password"
+                  className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditData((d) => ({
+                      ...d,
+                      showPassword: !d.showPassword,
+                    }))
+                  }
+                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                >
+                  {editData.showPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() =>
+                setEditData({
+                  open: false,
+                  user: null,
+                  newPassword: "",
+                  showPassword: false,
+                  saving: false,
+                })
+              }
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+            >
+              {editData.saving ? (
+                <Loader2 className="animate-spin w-4 h-4" />
+              ) : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

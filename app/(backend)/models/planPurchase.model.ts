@@ -38,6 +38,6 @@ const PlanPurchaseSchema = new Schema<IPlanPurchase>(
   { timestamps: true }
 );
 
-export const UserPlan: Model<IPlanPurchase> =
+export const PlanPurchase: Model<IPlanPurchase> =
   mongoose.models.PlanPurchase ||
   mongoose.model<IPlanPurchase>("PlanPurchase", PlanPurchaseSchema);

@@ -3,6 +3,8 @@ import { connectDB } from "@/app/(backend)/lib/db";
 import { User } from "@/app/(backend)/models/user.model";
 import bcrypt from "bcrypt";
 import * as XLSX from "xlsx";
+import { parse, startOfDay, endOfDay } from "date-fns";
+
 
 /**
  * @route GET /api/admin/users
@@ -17,6 +19,8 @@ export async function GET(req: Request) {
     const limit = parseInt(searchParams.get("limit") || "10");
     const search = searchParams.get("search") || "";
     const filter = searchParams.get("filter") || "all";
+    const startDate = searchParams.get("startDate") || "";
+    const endDate = searchParams.get("endDate") || "";
     const exportExcel = searchParams.get("export") === "excel";
 
     // 🔹 Base query (only regular users)
@@ -25,6 +29,17 @@ export async function GET(req: Request) {
     // 🔹 Apply filters
     if (filter === "active") query.isActive = true;
     if (filter === "inactive") query.isActive = false;
+
+    // 🔹 Apply Date Filter (startDate & endDate)
+    if (startDate) {
+      const parsedStart = parse(startDate, "yyyy-MM-dd", new Date());
+      query.createdAt = { ...query.createdAt, $gte: startOfDay(parsedStart) };
+    }
+
+    if (endDate) {
+      const parsedEnd = parse(endDate, "yyyy-MM-dd", new Date());
+      query.createdAt = { ...query.createdAt, $lte: endOfDay(parsedEnd) };
+    }
 
     // 🔹 Apply search
     if (search) {
@@ -55,7 +70,7 @@ export async function GET(req: Request) {
           TotalEarnings: u.totalEarnings,
           TotalWithdrawn: u.totalWithdrawn,
           Status: u.isActive ? "Active" : "Inactive",
-           createdAt: u.createdAt ,
+          createdAt: u.createdAt,
         }))
       );
 
