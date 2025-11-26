@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/app/(backend)/lib/db";
 import { User } from "@/app/(backend)/models/user.model";
 import { Plan } from "@/app/(backend)/models/plan.model";
-import { UserPlan } from "@/app/(backend)/models/planPurchase.model";
+import { PlanPurchase } from "@/app/(backend)/models/planPurchase.model";
 import { Transaction } from "@/app/(backend)/models/transaction.model";
 import jwt from "jsonwebtoken";
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     await user.save();
 
     // Create purchase
-    const purchase = await UserPlan.create({
+    const purchase = await PlanPurchase.create({
       userId: user.userId,
       planId: plan._id,
       amount: plan.amount,

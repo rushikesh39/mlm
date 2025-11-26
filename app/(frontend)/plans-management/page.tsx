@@ -101,14 +101,14 @@ export default function AdminPlansPage() {
   const [totalItems, setTotalItems] = useState<number>(0);
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
-  const pageSizes = [5, 10, 25, 50];
+  const pageSizes = [10, 25, 50];
 
   // fetch plans from server with ?page=&pageSize=
   const fetchPlans = async (p = page, ps = pageSize) => {
     try {
       setLoading(true);
       const res = await axios.get<PlansApiResponse>(
-        `/api/admin/plans?page=${p}&pageSize=${ps}`
+        `/api/admin/plans?page=${p}&limit=${ps}`
       );
 
       if (res.data?.success) {
